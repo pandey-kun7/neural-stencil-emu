@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import h5py
 from matplotlib.colors import PowerNorm
+import json
+import random
 
 def is_valid(i , j , n , m):
     if (i >= 0 and i < n and j >= 0 and j < m ):
@@ -11,31 +13,12 @@ def is_valid(i , j , n , m):
 def heat_diffusion():
 
     n , m = map(int,input("Enter grid (rows cols): ").split())
-    l = np.array([ [ 0.0 for i in range (m) ] for i in range (n) ])
+    max_norm_temp = float(input("Enter the max variable temp across the grid: "))
+    l = np.array([ [ random.uniform(0,max_norm_temp) for i in range (m) ] for i in range (n) ])
     k = int(input("Enter no. of hotspots : "))
     i = 0
     steps = int(input("Enter number of time steps: "))
-    r = float(input("Enter diffusion coefficient: "))
-
-    f = h5py.File('heat_diffusion.hdf5',"a")
-    version = f.attrs.get('version', 0) + 1
-    f.attrs['version'] = version
-    simulation_data = f.create_group(f"simulation__{version}")
-    metadata = simulation_data.create_group("metadata")
-    temperatures =  simulation_data.create_dataset(
-        "temp",
-        shape = ( steps+1, n , m),
-        dtype = "float32"
-    )
-    stencils = simulation_data.create_dataset(
-        "stencils",
-        shape = (0,9),
-        maxshape=(None, 9),
-        dtype="float32",
-        chunks=True,
-        compression="gzip"
-    )
-    
+    r = float(input("Enter diffusion coefficient: "))        
 
     global t_max ;
 
@@ -50,74 +33,56 @@ def heat_diffusion():
         l[x][y] += temp
         t_max = max(t_max, l[x][y])
         i += 1
-
-
-    metadata.attrs["rows"] = n
-    metadata.attrs["cols"] = m
-    metadata.attrs["time_steps"] = steps
-    metadata.attrs["alpha"] = r
-
-    # print(l)
-    # l[n//2][m//2] = temp;
-    # l[1][m//2] = temp;
-    # l[n//2][1] = temp;
-
+        
     timestep = 0
 
     fig , ax = plt.subplots()
-    im = ax.imshow(l , cmap = "hot", interpolation = "nearest", norm = PowerNorm(gamma = 0.3 , vmin = 0 , vmax = t_max))
+    im = ax.imshow(l , cmap = "hot", interpolation = "nearest", norm = PowerNorm(gamma = 0.2 , vmin = 1 , vmax = t_max))
     fig.colorbar(im, ax=ax,label = "Temp.")
     plt.show(block = False)
 
-    temperatures[0] = l
+    json_data_list = []
+
+    stencil_id = 0
+
 
     while(timestep != steps):
 
-        samples = []
-
-        
-
         l_ = l.copy()
         
-
-
         for i in range (n-1):
             for j in range (m-1):
-                sample = []
-                sample.append(l[i][j])
+
+                stencil_dict = dict()
+                
+                stencil = []
                 change = 0.0
                 
                 change += (- l[i][j] + l[i+1][j]) 
                 right = l[i+1][j]
-                sample.append(right)
 
-                # if (is_valid(i-1,j,n,m)):
                 change += (-l[i][j] + l[i-1][j]) 
                 left = l[i-1][j]
-                sample.append(left)
 
-                # if (is_valid(i,j+1,n,m)):
                 change += (-l[i][j] + l[i][j+1]) 
                 down = l[i][j+1]
-                sample.append(down)
                 
-                # if (is_valid(i,j-1, n, m)):
                 change += (-l[i][j] + l[i][j-1])
                 up = l[i][j-1]
-                sample.append(up)
 
                 l_[i][j] = l[i][j] + r * change
 
-                sample.extend([l_[i][j], timestep, i, j])
+                stencil.extend([l[i][j], right, left , down , up])
+                target = l_[i][j]
+                stencil_id += 1
 
-                samples.append(sample)
-        old_size = stencils.shape[0]
-        stencils.resize(old_size + len(samples) , axis = 0)
-        stencils[old_size:] = np.asarray(samples, dtype = np.float32)
+                stencil_dict['stencil_id'] = stencil_id
+                stencil_dict['stencil'] = stencil
+                stencil_dict['target'] = target
+
+                json_data_list.append(stencil_dict)
 
         l = l_
-
-        temperatures[timestep + 1] = l
 
         # print(f"\nTime step {timestep + 1}:")
         # for row in l:
@@ -128,11 +93,15 @@ def heat_diffusion():
         fig.canvas.draw_idle()
         plt.pause(0.2)
 
-                
         timestep += 1
 
+    with open("./short_traj.json","a") as st_file:
+        json.dump(json_data_list, st_file, indent=4)
 
-    f.close()
+    lk = 0
+    for i in json_data_list:
+        lk = max(lk,i['target'])
 
+    print(lk)
 if __name__ == "__main__":
     heat_diffusion()
